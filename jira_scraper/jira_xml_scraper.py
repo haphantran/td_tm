@@ -138,14 +138,26 @@ class JIRAXMLScraper:
             'dcj': r'DCJ\s*:\s*([^<]*?)(?:<br|$)',
             'internet_facing': r'Internet\s+Facing\s*:\s*([^<]*?)(?:<br|$)',
             'nda': r'NDA\s*:\s*([^<]*?)(?:<br|$)',
+            'additional_information': r'Additional\s+Information\s*:\s*(.*?)(?:<br|$)',
         }
 
         for field_name, pattern in field_patterns.items():
             match = re.search(pattern, html_description, re.IGNORECASE)
             if match:
                 value = match.group(1).strip()
-                # Clean up any remaining HTML tags or entities
-                value = re.sub(r'<[^>]+>', '', value)
+
+                # Special handling for additional_information - extract href from <a> tag
+                if field_name == 'additional_information':
+                    href_match = re.search(r'<a[^>]+href=["\']([^"\']+)["\']', value)
+                    if href_match:
+                        value = href_match.group(1)
+                    else:
+                        # If no href found, just clean up HTML tags
+                        value = re.sub(r'<[^>]+>', '', value)
+                else:
+                    # Clean up any remaining HTML tags or entities
+                    value = re.sub(r'<[^>]+>', '', value)
+
                 value = unescape(value).strip()
                 extracted_fields[field_name] = value
             else:

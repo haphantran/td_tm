@@ -100,7 +100,7 @@ class JIRAScraper:
 
         # Try multiple URL formats for different JIRA versions
         search_urls = [
-            f"{self.jira_url}/issues/?jql={encoded_jql}",  # JIRA Cloud
+            f"{self.jira_url}/projects/{self.project_key}/issues/?jql={encoded_jql}",  # JIRA Cloud
             f"{self.jira_url}/browse/{self.project_key}?jql={encoded_jql}",  # Alternative
             f"{self.jira_url}/secure/IssueNavigator.jspa?jqlQuery={encoded_jql}",  # JIRA Server/Classic
         ]
@@ -394,11 +394,11 @@ async def main():
     try:
         # Define your JQL query
         # Example: Get all threat modeling tickets from the last 12 months
-        jql_query = f'project = TM AND created >= -12M ORDER BY created DESC'
+        jql_query = f"project = TM AND created >= -12w ORDER BY created DESC"
 
         # Scrape tickets (set max_tickets for testing, None for all)
         # headless=False will show the browser (useful for SSO authentication)
-        await scraper.scrape_all_tickets(jql_query=jql_query, max_tickets=50, headless=False)
+        await scraper.scrape_all_tickets(jql_query=jql_query, max_tickets=3, headless=False)
 
         # Save to CSV
         scraper.save_to_csv('data/jira_tickets.csv')
