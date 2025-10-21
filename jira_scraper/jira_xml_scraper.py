@@ -130,12 +130,14 @@ class JIRAXMLScraper:
         extracted_fields = {}
 
         # Define field patterns (case-insensitive, flexible spacing)
+        # Format: "Field Name: value <br/>"
         field_patterns = {
-            'solution_architect': r'<b>\s*Solution\s+Architect\s*:?\s*</b>\s*([^<\n]+)',
-            'biso': r'<b>\s*BISO\s*:?\s*</b>\s*([^<\n]+)',
-            'dcj': r'<b>\s*DCJ\s*:?\s*</b>\s*([^<\n]+)',
-            'internet_facing': r'<b>\s*Internet\s+Facing\s*:?\s*</b>\s*([^<\n]+)',
-            'nda': r'<b>\s*NDA\s*:?\s*</b>\s*([^<\n]+)',
+            'project_manager': r'Project\s+Manager\s*:\s*([^<]*?)(?:<br|$)',
+            'solution_architect': r'Solution\s+Architect\s*:\s*([^<]*?)(?:<br|$)',
+            'biso': r'BISO\s*:\s*([^<]*?)(?:<br|$)',
+            'dcj': r'DCJ\s*:\s*([^<]*?)(?:<br|$)',
+            'internet_facing': r'Internet\s+Facing\s*:\s*([^<]*?)(?:<br|$)',
+            'nda': r'NDA\s*:\s*([^<]*?)(?:<br|$)',
         }
 
         for field_name, pattern in field_patterns.items():
