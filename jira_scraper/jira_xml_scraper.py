@@ -133,6 +133,9 @@ class JIRAXMLScraper:
                 'resolution': get_text(item, 'resolution'),
             }
 
+            # Initialize important custom fields with blank values (ensures they exist in CSV)
+            ticket_data['mal_code'] = ''
+
             # Extract custom fields (look for customfields section)
             customfields = item.find('customfields')
             if customfields is not None:
@@ -198,29 +201,27 @@ class JIRAXMLScraper:
             print(f"Error during scraping: {str(e)}")
             raise
 
-    async def scrape_from_jql(self, jql_query=None, max_tickets=None, headless=False):
-        """Scrape tickets using JQL query to get ticket list, then fetch XML for each"""
+    async def scrape_all_tickets(self, jql_query=None, max_tickets=None, headless=False):
+        """Main method to scrape all tickets - same interface as original scraper"""
         try:
             # Initialize browser
             await self.initialize_browser(headless=headless)
 
-            # Login
+            # Login (SSO)
             await self.login()
 
-            # Get ticket keys from JQL search
-            if jql_query is None:
-                jql_query = f'project = {self.project_key} ORDER BY created DESC'
+            # Get ticket list from JQL
+            ticket_keys = await self.get_ticket_list(jql_query)
 
-            ticket_keys = await self.get_ticket_keys_from_jql(jql_query)
-
+            # Limit number of tickets if specified
             if max_tickets:
                 ticket_keys = ticket_keys[:max_tickets]
 
-            # Fetch XML for each ticket
+            # Extract XML data from each ticket
             for i, ticket_key in enumerate(ticket_keys, 1):
                 print(f"\nProcessing {i}/{len(ticket_keys)}: {ticket_key}")
                 await self.fetch_ticket_xml(ticket_key)
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.3)  # Be respectful to the server
 
             print(f"\n✓ Scraping completed! Extracted {len(self.tickets_data)} tickets")
 
@@ -228,48 +229,71 @@ class JIRAXMLScraper:
             print(f"Error during scraping: {str(e)}")
             raise
 
-    async def get_ticket_keys_from_jql(self, jql_query):
-        """Get ticket keys from JQL search"""
+    async def get_ticket_list(self, jql_query=None):
+        """Get list of tickets using JQL query - same as original scraper"""
+        if jql_query is None:
+            # Default query for threat modeling tickets
+            jql_query = f'project = {self.project_key} ORDER BY created DESC'
+
+        # URL encode the JQL query
         from urllib.parse import quote
         encoded_jql = quote(jql_query)
 
+        # Try multiple URL formats for different JIRA versions
         search_urls = [
-            f"{self.jira_url}/issues/?jql={encoded_jql}",
-            f"{self.jira_url}/browse/{self.project_key}?jql={encoded_jql}",
-            f"{self.jira_url}/secure/IssueNavigator.jspa?jqlQuery={encoded_jql}",
+            f"{self.jira_url}/issues/?jql={encoded_jql}",  # JIRA Cloud
+            f"{self.jira_url}/browse/{self.project_key}?jql={encoded_jql}",  # Alternative
+            f"{self.jira_url}/secure/IssueNavigator.jspa?jqlQuery={encoded_jql}",  # JIRA Server/Classic
         ]
 
-        print(f"Searching with JQL: {jql_query}")
+        print(f"Searching tickets with JQL: {jql_query}")
 
+        # Try each URL format until one works
         ticket_keys = []
         for i, search_url in enumerate(search_urls):
             try:
-                print(f"Trying URL format {i+1}...")
+                print(f"Trying URL format {i+1}: {search_url[:80]}...")
                 await self.page.goto(search_url, timeout=15000)
                 await self.page.wait_for_load_state("networkidle")
 
-                # Extract ticket keys
-                ticket_elements = await self.page.query_selector_all(
-                    'a[data-testid*="issue-key"], .issue-link-key, [data-issue-key]'
-                )
-
-                for element in ticket_elements:
-                    ticket_key = await element.text_content()
-                    if not ticket_key:
-                        ticket_key = await element.get_attribute('data-issue-key')
-
-                    if ticket_key:
-                        ticket_key = ticket_key.strip()
-                        if '-' in ticket_key and ticket_key not in ticket_keys:
-                            ticket_keys.append(ticket_key)
-
-                if ticket_keys:
-                    print(f"✓ Found {len(ticket_keys)} tickets")
+                # Check if we got to a valid page (not 404 or error)
+                page_title = await self.page.title()
+                if "404" not in page_title and "error" not in page_title.lower():
+                    print(f"✓ URL format {i+1} worked!")
                     break
-
             except Exception as e:
                 print(f"  URL format {i+1} failed: {str(e)[:50]}")
                 continue
+
+        # Get ticket keys from search results
+        try:
+            # Wait for results to load - try multiple selectors for different JIRA versions
+            await self.page.wait_for_selector(
+                'a[data-testid*="issue-key"], .issue-link-key, [data-issue-key]',
+                timeout=10000
+            )
+
+            # Extract ticket keys using different selectors
+            ticket_elements = await self.page.query_selector_all(
+                'a[data-testid*="issue-key"], .issue-link-key, [data-issue-key]'
+            )
+
+            for element in ticket_elements:
+                # Try to get text content or data attribute
+                ticket_key = await element.text_content()
+                if not ticket_key:
+                    ticket_key = await element.get_attribute('data-issue-key')
+
+                if ticket_key:
+                    ticket_key = ticket_key.strip()
+                    # Validate format (PROJECT-NUMBER)
+                    if '-' in ticket_key and ticket_key not in ticket_keys:
+                        ticket_keys.append(ticket_key)
+
+            print(f"Found {len(ticket_keys)} tickets")
+
+        except Exception as e:
+            print(f"Error getting ticket list: {str(e)}")
 
         return ticket_keys
 
@@ -304,40 +328,17 @@ class JIRAXMLScraper:
 
 
 async def main():
-    """Main execution"""
+    """Main execution - same interface as original scraper"""
     scraper = JIRAXMLScraper()
 
     try:
-        # Option 1: Scrape specific ticket keys
-        ticket_keys = [
-            'TMHUB-998',
-            # Add more ticket keys...
-        ]
+        # Define your JQL query
+        # Example: Get all threat modeling tickets from the last 12 months
+        jql_query = 'project = TMHUB AND created >= -12M ORDER BY created DESC'
 
-        print("=" * 80)
-        print("JIRA XML SCRAPER")
-        print("=" * 80)
-
-        choice = input("\nChoose method:\n1. Scrape specific ticket keys\n2. Use JQL query\nChoice (1 or 2): ").strip()
-
-        if choice == '1':
-            # Manual ticket list
-            keys_input = input("\nEnter ticket keys (comma-separated, e.g., TMHUB-998,TMHUB-999): ").strip()
-            if keys_input:
-                ticket_keys = [k.strip() for k in keys_input.split(',')]
-
-            await scraper.scrape_tickets(ticket_keys, headless=False)
-
-        else:
-            # JQL query
-            jql = input("\nEnter JQL query (or press Enter for default): ").strip()
-            if not jql:
-                jql = f'project = TMHUB AND created >= -12M ORDER BY created DESC'
-
-            max_tickets = input("Max tickets to scrape (or press Enter for all): ").strip()
-            max_tickets = int(max_tickets) if max_tickets else None
-
-            await scraper.scrape_from_jql(jql_query=jql, max_tickets=max_tickets, headless=False)
+        # Scrape tickets (set max_tickets for testing, None for all)
+        # headless=False will show the browser (useful for SSO authentication)
+        await scraper.scrape_all_tickets(jql_query=jql_query, max_tickets=50, headless=False)
 
         # Save to CSV
         scraper.save_to_csv('data/jira_tickets_xml.csv')
@@ -346,6 +347,7 @@ async def main():
         print(f"Scraping failed: {str(e)}")
 
     finally:
+        # Always close the browser
         await scraper.close()
 
 
