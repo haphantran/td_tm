@@ -7,6 +7,8 @@ import os
 import asyncio
 import pandas as pd
 import xml.etree.ElementTree as ET
+import re
+from html import unescape
 from playwright.async_api import async_playwright
 from dotenv import load_dotenv
 
@@ -103,6 +105,52 @@ class JIRAXMLScraper:
             print(f"  ✗ Error fetching {ticket_key}: {str(e)}")
             return None
 
+    def parse_html_description(self, html_description):
+        """Parse HTML description to extract plain text and specific fields"""
+        if not html_description:
+            return '', {}
+
+        # Convert HTML to plain text
+        plain_text = html_description
+
+        # Remove HTML tags but preserve line breaks
+        plain_text = re.sub(r'<br\s*/?>', '\n', plain_text)
+        plain_text = re.sub(r'<p>', '\n', plain_text)
+        plain_text = re.sub(r'</p>', '\n', plain_text)
+        plain_text = re.sub(r'<li>', '\n- ', plain_text)
+        plain_text = re.sub(r'<[^>]+>', '', plain_text)
+
+        # Unescape HTML entities
+        plain_text = unescape(plain_text)
+
+        # Clean up multiple newlines
+        plain_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', plain_text).strip()
+
+        # Extract specific fields from HTML
+        extracted_fields = {}
+
+        # Define field patterns (case-insensitive, flexible spacing)
+        field_patterns = {
+            'solution_architect': r'<b>\s*Solution\s+Architect\s*:?\s*</b>\s*([^<\n]+)',
+            'biso': r'<b>\s*BISO\s*:?\s*</b>\s*([^<\n]+)',
+            'dcj': r'<b>\s*DCJ\s*:?\s*</b>\s*([^<\n]+)',
+            'internet_facing': r'<b>\s*Internet\s+Facing\s*:?\s*</b>\s*([^<\n]+)',
+            'nda': r'<b>\s*NDA\s*:?\s*</b>\s*([^<\n]+)',
+        }
+
+        for field_name, pattern in field_patterns.items():
+            match = re.search(pattern, html_description, re.IGNORECASE)
+            if match:
+                value = match.group(1).strip()
+                # Clean up any remaining HTML tags or entities
+                value = re.sub(r'<[^>]+>', '', value)
+                value = unescape(value).strip()
+                extracted_fields[field_name] = value
+            else:
+                extracted_fields[field_name] = ''
+
+        return plain_text, extracted_fields
+
     def parse_xml(self, root, ticket_key):
         """Parse JIRA XML and extract all fields"""
         try:
@@ -116,12 +164,19 @@ class JIRAXMLScraper:
                 elem = element.find(tag)
                 return elem.text if elem is not None and elem.text else default
 
+            # Get raw description (may contain HTML)
+            raw_description = get_text(item, 'description')
+
+            # Parse description HTML to get plain text and extract specific fields
+            description_plain, description_fields = self.parse_html_description(raw_description)
+
             # Extract standard fields
             ticket_data = {
                 'ticket_key': ticket_key,
                 'title': get_text(item, 'title'),
                 'summary': get_text(item, 'summary'),
-                'description': get_text(item, 'description'),
+                'description': description_plain,
+                'description_raw': raw_description,  # Keep original HTML version if needed
                 'status': get_text(item, 'status'),
                 'priority': get_text(item, 'priority'),
                 'type': get_text(item, 'type'),
@@ -132,6 +187,9 @@ class JIRAXMLScraper:
                 'resolved': get_text(item, 'resolved'),
                 'resolution': get_text(item, 'resolution'),
             }
+
+            # Add extracted fields from description
+            ticket_data.update(description_fields)
 
             # Initialize important custom fields with blank values (ensures they exist in CSV)
             ticket_data['mal_code'] = ''
