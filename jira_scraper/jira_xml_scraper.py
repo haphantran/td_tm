@@ -116,11 +116,11 @@ class JIRAXMLScraper:
         if additional_info_match:
             additional_info_link = additional_info_match.group(1)
 
-        # Replace <br> tags with newlines first
-        cleaned_html = re.sub(r'<br\s*/?>', '\n', html_description, flags=re.IGNORECASE)
-        cleaned_html = re.sub(r'<p>', '\n', cleaned_html)
+        # Replace ALL variations of <br> tags with newlines (including those with class, id, etc.)
+        cleaned_html = re.sub(r'<br[^>]*>', '\n', html_description, flags=re.IGNORECASE)
+        cleaned_html = re.sub(r'<p[^>]*>', '\n', cleaned_html)
         cleaned_html = re.sub(r'</p>', '\n', cleaned_html)
-        cleaned_html = re.sub(r'<li>', '\n- ', cleaned_html)
+        cleaned_html = re.sub(r'<li[^>]*>', '\n- ', cleaned_html)
 
         # Remove all other HTML tags
         cleaned_html = re.sub(r'<[^>]+>', '', cleaned_html)
@@ -132,18 +132,19 @@ class JIRAXMLScraper:
         extracted_fields = {}
 
         # Define field patterns (simpler now - just look for "Field Name: value" on lines)
+        # Use non-greedy match to capture until end of line or newline
         field_patterns = {
-            'project_manager': r'Project\s+Manager\s*:\s*(.*)$',
-            'solution_architect': r'Solution\s+Architect\s*:\s*(.*)$',
-            'biso': r'BISO\s*:\s*(.*)$',
-            'dcj': r'DCJ\s*:\s*(.*)$',
-            'internet_facing': r'Internet\s+Facing\s*:\s*(.*)$',
-            'nda': r'NDA\s*:\s*(.*)$',
-            'additional_information': r'Additional\s+Information\s*:\s*(.*)$',
+            'project_manager': r'Project\s+Manager\s*:\s*([^\n]*)',
+            'solution_architect': r'Solution\s+Architect\s*:\s*([^\n]*)',
+            'biso': r'BISO\s*:\s*([^\n]*)',
+            'dcj': r'DCJ\s*:\s*([^\n]*)',
+            'internet_facing': r'Internet\s+Facing\s*:\s*([^\n]*)',
+            'nda': r'NDA\s*:\s*([^\n]*)',
+            'additional_information': r'Additional\s+Information\s*:\s*([^\n]*)',
         }
 
         for field_name, pattern in field_patterns.items():
-            match = re.search(pattern, cleaned_html, re.IGNORECASE | re.MULTILINE)
+            match = re.search(pattern, cleaned_html, re.IGNORECASE)
             if match:
                 value = match.group(1).strip()
 
