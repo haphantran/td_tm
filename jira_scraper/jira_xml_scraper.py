@@ -131,29 +131,42 @@ class JIRAXMLScraper:
         # Now extract fields from the cleaned text (no HTML tags to worry about!)
         extracted_fields = {}
 
-        # Define field patterns (simpler now - just look for "Field Name: value" on lines)
-        # Use non-greedy match to capture until end of line or newline
+        # Split by newlines to process line by line
+        lines = cleaned_html.split('\n')
+
+        # Define field patterns - match field name and capture value on same line
+        # Stop at newline or when we see another field name pattern
         field_patterns = {
-            'project_manager': r'Project\s+Manager\s*:\s*([^\n]*)',
-            'solution_architect': r'Solution\s+Architect\s*:\s*([^\n]*)',
-            'biso': r'BISO\s*:\s*([^\n]*)',
-            'dcj': r'DCJ\s*:\s*([^\n]*)',
-            'internet_facing': r'Internet\s+Facing\s*:\s*([^\n]*)',
-            'nda': r'NDA\s*:\s*([^\n]*)',
-            'additional_information': r'Additional\s+Information\s*:\s*([^\n]*)',
+            'project_manager': r'Project\s+Manager\s*:\s*(.*)',
+            'solution_architect': r'Solution\s+Architect\s*:\s*(.*)',
+            'biso': r'BISO\s*:\s*(.*)',
+            'dcj': r'DCJ\s*:\s*(.*)',
+            'internet_facing': r'Internet\s+Facing\s*:\s*(.*)',
+            'nda': r'NDA\s*:\s*(.*)',
+            'additional_information': r'Additional\s+Information\s*:\s*(.*)',
         }
 
-        for field_name, pattern in field_patterns.items():
-            match = re.search(pattern, cleaned_html, re.IGNORECASE)
-            if match:
-                value = match.group(1).strip()
+        # Process each line
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
 
-                # Special handling for additional_information - use extracted link if available
-                if field_name == 'additional_information' and additional_info_link:
-                    value = additional_info_link
+            for field_name, pattern in field_patterns.items():
+                match = re.search(pattern, line, re.IGNORECASE)
+                if match:
+                    value = match.group(1).strip()
 
-                extracted_fields[field_name] = value
-            else:
+                    # Special handling for additional_information - use extracted link if available
+                    if field_name == 'additional_information' and additional_info_link:
+                        value = additional_info_link
+
+                    extracted_fields[field_name] = value
+                    break  # Move to next line once we've matched a field
+
+        # Ensure all fields exist (even if empty)
+        for field_name in field_patterns.keys():
+            if field_name not in extracted_fields:
                 extracted_fields[field_name] = ''
 
         # Create plain text version for the description field
