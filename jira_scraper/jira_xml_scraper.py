@@ -486,11 +486,11 @@ async def main():
     try:
         # Define your JQL query
         # Example: Get all threat modeling tickets from the last 12 months
-        jql_query = 'project = TMHUB AND created >= -12M ORDER BY created DESC'
+        jql_query = "project = TMHUB"
 
         # Scrape tickets (set max_tickets for testing, None for all)
         # headless=False will show the browser (useful for SSO authentication)
-        await scraper.scrape_all_tickets(jql_query=jql_query, max_tickets=3, headless=True)
+        await scraper.scrape_all_tickets(jql_query=jql_query, max_tickets=3, headless=False)
 
         # Save to CSV
         scraper.save_to_csv('data/jira_tickets_xml.csv')
