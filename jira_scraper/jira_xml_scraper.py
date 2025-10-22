@@ -312,8 +312,8 @@ class JIRAXMLScraper:
             print(f"Error during scraping: {str(e)}")
             raise
 
-    async def get_ticket_list(self, jql_query=None):
-        """Get list of tickets using JQL query - same as original scraper"""
+    async def get_ticket_list(self, jql_query=None, ticket_list_file='data/ticket_keys.txt'):
+        """Get list of tickets using JQL query with pagination support"""
         if jql_query is None:
             # Default query for threat modeling tickets
             jql_query = f'project = {self.project_key} ORDER BY created DESC'
@@ -324,7 +324,7 @@ class JIRAXMLScraper:
 
         # Try multiple URL formats for different JIRA versions
         search_urls = [
-            f"{self.jira_url}/projects/{self.project_key}/issues/?jql={encoded_jql}",  # JIRA Cloud
+            f"{self.jira_url}/issues/?jql={encoded_jql}",  # JIRA Cloud
             f"{self.jira_url}/browse/{self.project_key}?jql={encoded_jql}",  # Alternative
             f"{self.jira_url}/secure/IssueNavigator.jspa?jqlQuery={encoded_jql}",  # JIRA Server/Classic
         ]
@@ -333,6 +333,8 @@ class JIRAXMLScraper:
 
         # Try each URL format until one works
         ticket_keys = []
+        working_url = None
+
         for i, search_url in enumerate(search_urls):
             try:
                 print(f"Trying URL format {i+1}: {search_url[:80]}...")
@@ -343,40 +345,107 @@ class JIRAXMLScraper:
                 page_title = await self.page.title()
                 if "404" not in page_title and "error" not in page_title.lower():
                     print(f"✓ URL format {i+1} worked!")
+                    working_url = search_url
                     break
             except Exception as e:
                 print(f"  URL format {i+1} failed: {str(e)[:50]}")
                 continue
 
-        # Get ticket keys from search results
-        try:
-            # Wait for results to load - try multiple selectors for different JIRA versions
-            await self.page.wait_for_selector(
-                'a[data-testid*="issue-key"], .issue-link-key, [data-issue-key]',
-                timeout=10000
-            )
+        if not working_url:
+            print("Could not find a working URL format")
+            return ticket_keys
 
-            # Extract ticket keys using different selectors
-            ticket_elements = await self.page.query_selector_all(
-                'a[data-testid*="issue-key"], .issue-link-key, [data-issue-key]'
-            )
+        # Create directory for ticket list file
+        os.makedirs(os.path.dirname(ticket_list_file), exist_ok=True)
 
-            for element in ticket_elements:
-                # Try to get text content or data attribute
-                ticket_key = await element.text_content()
-                if not ticket_key:
-                    ticket_key = await element.get_attribute('data-issue-key')
+        # Clear the file at the start
+        with open(ticket_list_file, 'w') as f:
+            f.write('')
 
-                if ticket_key:
-                    ticket_key = ticket_key.strip()
-                    # Validate format (PROJECT-NUMBER)
-                    if '-' in ticket_key and ticket_key not in ticket_keys:
-                        ticket_keys.append(ticket_key)
+        # Pagination loop
+        page_num = 1
+        while True:
+            print(f"\nExtracting tickets from page {page_num}...")
 
-            print(f"Found {len(ticket_keys)} tickets")
+            try:
+                # Wait for results to load - try multiple selectors for different JIRA versions
+                await self.page.wait_for_selector(
+                    'a[data-testid*="issue-key"], .issue-link-key, [data-issue-key]',
+                    timeout=10000
+                )
 
-        except Exception as e:
-            print(f"Error getting ticket list: {str(e)}")
+                # Extract ticket keys using different selectors
+                ticket_elements = await self.page.query_selector_all(
+                    'a[data-testid*="issue-key"], .issue-link-key, [data-issue-key]'
+                )
+
+                page_tickets = []
+                for element in ticket_elements:
+                    # Try to get text content or data attribute
+                    ticket_key = await element.text_content()
+                    if not ticket_key:
+                        ticket_key = await element.get_attribute('data-issue-key')
+
+                    if ticket_key:
+                        ticket_key = ticket_key.strip()
+                        # Validate format (PROJECT-NUMBER)
+                        if '-' in ticket_key and ticket_key not in ticket_keys:
+                            ticket_keys.append(ticket_key)
+                            page_tickets.append(ticket_key)
+
+                # Save this page's tickets to file
+                if page_tickets:
+                    with open(ticket_list_file, 'a') as f:
+                        for ticket_key in page_tickets:
+                            f.write(f"{ticket_key}\n")
+                    print(f"  Found {len(page_tickets)} tickets on page {page_num} (Total: {len(ticket_keys)})")
+                else:
+                    print(f"  No new tickets found on page {page_num}")
+                    break
+
+                # Look for "Next" button or pagination
+                next_button = None
+                try:
+                    # Try different selectors for next button
+                    next_selectors = [
+                        'button[aria-label="Next"]',
+                        'a[aria-label="Next"]',
+                        'button:has-text("Next")',
+                        'a:has-text("Next")',
+                        '.pagination-next',
+                        '[data-testid="pagination-next-button"]',
+                    ]
+
+                    for selector in next_selectors:
+                        next_button = await self.page.query_selector(selector)
+                        if next_button:
+                            # Check if button is disabled
+                            is_disabled = await next_button.get_attribute('disabled')
+                            aria_disabled = await next_button.get_attribute('aria-disabled')
+                            if is_disabled or aria_disabled == 'true':
+                                next_button = None
+                            break
+
+                except Exception as e:
+                    print(f"  Error finding next button: {str(e)[:50]}")
+
+                # If no next button, we're done
+                if not next_button:
+                    print(f"  No more pages (reached end of pagination)")
+                    break
+
+                # Click next button
+                await next_button.click()
+                await self.page.wait_for_load_state("networkidle")
+                await asyncio.sleep(1)  # Give page time to update
+                page_num += 1
+
+            except Exception as e:
+                print(f"  Error on page {page_num}: {str(e)}")
+                break
+
+        print(f"\n✓ Total tickets found across all pages: {len(ticket_keys)}")
+        print(f"✓ Ticket list saved to: {ticket_list_file}")
 
         return ticket_keys
 
