@@ -490,7 +490,7 @@ async def main():
 
         # Scrape tickets (set max_tickets for testing, None for all)
         # headless=False will show the browser (useful for SSO authentication)
-        await scraper.scrape_all_tickets(jql_query=jql_query, max_tickets=3, headless=False)
+        await scraper.scrape_all_tickets(jql_query=jql_query, max_tickets=3, headless=True)
 
         # Save to CSV
         scraper.save_to_csv('data/jira_tickets_xml.csv')
