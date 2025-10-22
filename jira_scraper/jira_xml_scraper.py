@@ -324,7 +324,7 @@ class JIRAXMLScraper:
 
         # Try multiple URL formats for different JIRA versions
         search_urls = [
-            f"{self.jira_url}/issues/?jql={encoded_jql}",  # JIRA Cloud
+            f"{self.jira_url}/projects/{self.project_key}/issues/TMHUB-998?filter=allissues",  # td jira
             f"{self.jira_url}/browse/{self.project_key}?jql={encoded_jql}",  # Alternative
             f"{self.jira_url}/secure/IssueNavigator.jspa?jqlQuery={encoded_jql}",  # JIRA Server/Classic
         ]
