@@ -408,6 +408,7 @@ class JIRAXMLScraper:
                 try:
                     # Try different selectors for next button
                     next_selectors = [
+                        'a.nav-next',
                         'button[aria-label="Next"]',
                         'a[aria-label="Next"]',
                         'button:has-text("Next")',
@@ -419,11 +420,15 @@ class JIRAXMLScraper:
                     for selector in next_selectors:
                         next_button = await self.page.query_selector(selector)
                         if next_button:
-                            # Check if button is disabled
+                            # Check if button/link is disabled or has disabled class
                             is_disabled = await next_button.get_attribute('disabled')
                             aria_disabled = await next_button.get_attribute('aria-disabled')
-                            if is_disabled or aria_disabled == 'true':
+                            class_attr = await next_button.get_attribute('class')
+
+                            if is_disabled or aria_disabled == 'true' or (class_attr and 'disabled' in class_attr):
                                 next_button = None
+                            else:
+                                print(f"  Found next button with selector: {selector}")
                             break
 
                 except Exception as e:
